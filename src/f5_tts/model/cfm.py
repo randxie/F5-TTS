@@ -97,7 +97,7 @@ class CFM(nn.Module):
         t_inter=0.1,
         edit_mask=None,
     ):
-        self.eval()
+        #self.eval()
         # raw wave
 
         if cond.ndim == 2:
@@ -279,7 +279,10 @@ class CFM(nn.Module):
         )
 
         # flow matching loss
-        loss = F.mse_loss(pred, flow, reduction="none")
-        loss = loss[rand_span_mask]
+        #
+        # [rand]: do not need loss
+        # loss = F.mse_loss(pred, flow, reduction="none")
+        # loss = loss[rand_span_mask]
+        loss = None
 
         return loss.mean(), cond, pred
