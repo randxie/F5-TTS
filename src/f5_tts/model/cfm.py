@@ -36,6 +36,7 @@ def euler_midpoint(fn, y0, t):
         h = t[i + 1] - t[i]
         
         # Compute the midpoint
+        torch.compiler.cudagraph_mark_step_begin() 
         t_mid = t[i] + h / 2
         y_mid = y + (h / 2) * fn(t[i], y)
         
@@ -216,7 +217,6 @@ class CFM(nn.Module):
 
         # [rand] just implement the euler midpoint with torch
         # trajectory = odeint(fn, y0, t, **self.odeint_kwargs)
-        torch.compiler.cudagraph_mark_step_begin() # [rand] check if we can handle it differently to reuse the memory of y0
         trajectory = euler_midpoint(fn, y0, t)
         sampled = trajectory
 
