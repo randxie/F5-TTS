@@ -188,7 +188,11 @@ class ConvPositionEmbedding(nn.Module):
             nn.Conv1d(dim, dim, kernel_size, groups=groups, padding=kernel_size // 2),
             nn.Mish(),
         )
+<<<<<<< Updated upstream
     # x: float["b n d"], mask: bool["b n"] | None = None
+=======
+    # x: float["b n d"], mask: bool["b n"]
+>>>>>>> Stashed changes
     def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None):  # noqa: F722
         if mask is not None:
             mask = mask[..., None]
@@ -672,7 +676,12 @@ class TimestepEmbedding(nn.Module):
         super().__init__()
         self.time_embed = SinusPositionEmbedding(freq_embed_dim)
         self.time_mlp = nn.Sequential(nn.Linear(freq_embed_dim, dim), nn.SiLU(), nn.Linear(dim, dim))
+<<<<<<< Updated upstream
 
+=======
+    
+    # timestep: float["b"]
+>>>>>>> Stashed changes
     def forward(self, timestep: torch.Tensor):  # noqa: F821
         time_hidden = self.time_embed(timestep)
         time_hidden = time_hidden.to(timestep.dtype)
