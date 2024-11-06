@@ -64,24 +64,37 @@ class RotaryEmbedding(Module):
 
     def forward(self, t):
         max_pos = t.max() + 1
-
+        
+        # inv_freq: [d, ] -> [d, d]
         freqs = torch.einsum('i, j -> i j', t.type_as(self.inv_freq), self.inv_freq) / self.interpolation_factor
+
+        # [d, d] -> [d, d, 2]
         freqs = torch.stack((freqs, freqs), dim = -1)
 
         # freqs = rearrange(freqs, '... d r -> ... (d r)')
         freq_dim = freqs.shape[0]
+        
+        # [d, 2 * d]
         freqs = freqs.view(freq_dim, -1)
 
         if self.scale is None:
             return freqs, 1.
-
+        
+        # [seq_len, ]
         power = (t - (max_pos // 2)) / self.scale_base
+
+        # [seq_len, d // 2]
         #scale = self.scale ** rearrange(power, 'n -> n 1')
         scale = self.scale ** power.unsqueeze(1)
+
+        # [seq_len, d // 2] -> [seq_len, d // 2, 2]
         scale = torch.stack((scale, scale), dim = -1)
 
+        
         #scale = rearrange(scale, '... d r -> ... (d r)')
         seq_len = scale.shape[0]
+
+        # [seq_len, d]
         scale = scale.view(seq_len, -1)
 
         return freqs, scale
