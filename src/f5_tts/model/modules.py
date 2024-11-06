@@ -405,10 +405,9 @@ class Attention(nn.Module):
     def forward(
         self,
         x: torch.Tensor,  # noised input x  # noqa: F722
-        c: torch.Tensor = None,  # context c  # noqa: F722
         mask: torch.Tensor | None = None,  # noqa: F722
-        rope= Tuple[torch.Tensor, torch.Tensor] | None,  # rotary position embedding for x
-        c_rope=None,  # rotary position embedding for c
+        freqs: torch.Tensor | None = None,  # rotary position embedding for x
+        scales: torch.Tensor | None = None,  # rotary position embedding for x
     ) -> torch.Tensor:
         batch_size = x.shape[0]
 
@@ -418,12 +417,11 @@ class Attention(nn.Module):
         value = self.to_v(x)
 
         # apply rotary position embedding
-        if rope is not None:
-            freqs, xpos_scale = rope[0], rope[1]
-            q_xpos_scale, k_xpos_scale = (xpos_scale, xpos_scale**-1.0) if xpos_scale is not None else (1.0, 1.0)
+        freqs, xpos_scale = freqs, scales
+        q_xpos_scale, k_xpos_scale = (xpos_scale, xpos_scale**-1.0) if xpos_scale is not None else (1.0, 1.0)
 
-            query = apply_rotary_pos_emb(query, freqs, q_xpos_scale)
-            key = apply_rotary_pos_emb(key, freqs, k_xpos_scale)
+        query = apply_rotary_pos_emb(query, freqs, q_xpos_scale)
+        key = apply_rotary_pos_emb(key, freqs, k_xpos_scale)
 
         # attention
         inner_dim = key.shape[-1]
@@ -562,12 +560,12 @@ class DiTBlock(nn.Module):
         self.ff_norm = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.ff = FeedForward(dim=dim, mult=ff_mult, dropout=dropout, approximate="tanh")
 
-    def forward(self, x, t, mask=None, rope=None):  # x: noised input, t: time embedding
+    def forward(self, x, t, mask=None, freqs: torch.Tensor | None=None, scales: torch.Tensor | None = None):  # x: noised input, t: time embedding
         # pre-norm & modulation for attention input
         norm, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.attn_norm(x, emb=t)
 
         # attention
-        attn_output = self.attn(x=norm, mask=mask, rope=rope)
+        attn_output = self.attn(x=norm, mask=mask, freqs=freqs, scales=scales)
 
         # process attention output for input x
         x = x + gate_msa.unsqueeze(1) * attn_output
