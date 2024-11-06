@@ -151,7 +151,7 @@ class SinusPositionEmbedding(nn.Module):
         super().__init__()
         self.dim = dim
 
-    def forward(self, x, scale=1000):
+    def forward(self, x, scale: float=1000):
         device = x.device
         half_dim = self.dim // 2
         emb = math.log(10000) / (half_dim - 1)
@@ -174,8 +174,8 @@ class ConvPositionEmbedding(nn.Module):
             nn.Conv1d(dim, dim, kernel_size, groups=groups, padding=kernel_size // 2),
             nn.Mish(),
         )
-
-    def forward(self, x: float["b n d"], mask: bool["b n"] | None = None):  # noqa: F722
+    # x: float["b n d"], mask: bool["b n"] | None = None
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None):  # noqa: F722
         if mask is not None:
             mask = mask[..., None]
             x = x.masked_fill(~mask, 0.0)
@@ -207,7 +207,7 @@ def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0, theta_resca
     return torch.cat([freqs_cos, freqs_sin], dim=-1)
 
 
-def get_pos_embed_indices(start, length, max_pos, scale=1.0):
+def get_pos_embed_indices(start: torch.Tensor, length: int, max_pos: int, scale: float=1.0):
     # length = length if isinstance(length, int) else length.max()
     scale = scale * torch.ones_like(start, dtype=torch.float32)  # in case scale is a scalar
     pos = (
@@ -651,7 +651,7 @@ class TimestepEmbedding(nn.Module):
         self.time_embed = SinusPositionEmbedding(freq_embed_dim)
         self.time_mlp = nn.Sequential(nn.Linear(freq_embed_dim, dim), nn.SiLU(), nn.Linear(dim, dim))
 
-    def forward(self, timestep: float["b"]):  # noqa: F821
+    def forward(self, timestep: torch.Tensor):  # noqa: F821
         time_hidden = self.time_embed(timestep)
         time_hidden = time_hidden.to(timestep.dtype)
         time = self.time_mlp(time_hidden)  # b d
