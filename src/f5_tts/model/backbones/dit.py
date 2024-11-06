@@ -123,7 +123,11 @@ class TextEmbedding(nn.Module):
         text = text + 1  # use 0 as filler token. preprocess of batch pad -1, see list_str_to_idx()
         text = text[:, :seq_len]  # curtail if character tokens are more than the mel spec tokens
         batch, text_len = text.shape[0], text.shape[1]
+<<<<<<< Updated upstream
         text = F.pad(text, (0, seq_len - text_len), value=0.0)
+=======
+        text = F.pad(text, [0, seq_len - text_len], value=0.0)
+>>>>>>> Stashed changes
 
         if drop_text:  # cfg for text
             text = torch.zeros_like(text)
@@ -152,8 +156,12 @@ class InputEmbedding(nn.Module):
         super().__init__()
         self.proj = nn.Linear(mel_dim * 2 + text_dim, out_dim)
         self.conv_pos_embed = ConvPositionEmbedding(dim=out_dim)
+<<<<<<< Updated upstream
     
     # x: float["b n d"], cond: float["b n d"], text_embed: float["b n d"], drop_audio_cond=False
+=======
+    # x: float["b n d"], cond: float["b n d"], text_embed: float["b n d"]
+>>>>>>> Stashed changes
     def forward(self, x: torch.Tensor, cond: torch.Tensor, text_embed: torch.Tensor, drop_audio_cond: bool=False):  # noqa: F722
         if drop_audio_cond:  # cfg for cond audio
             cond = torch.zeros_like(cond)
@@ -218,8 +226,13 @@ class DiT(nn.Module):
         cond: torch.Tensor,  # masked cond audio  # noqa: F722
         text: torch.Tensor,  # text  # noqa: F722
         time: torch.Tensor,  # time step  # noqa: F821 F722
+<<<<<<< Updated upstream
         drop_audio_cond: bool = False,  # cfg for cond audio
         drop_text: bool = False,  # cfg for text
+=======
+        drop_audio_cond: bool,  # cfg for cond audio
+        drop_text: bool,  # cfg for text
+>>>>>>> Stashed changes
         mask: torch.Tensor | None = None,  # noqa: F722
     ):
         batch, seq_len = x.shape[0], x.shape[1]
