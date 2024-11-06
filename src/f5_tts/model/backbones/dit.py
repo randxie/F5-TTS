@@ -42,6 +42,7 @@ class RotaryEmbedding(Module):
         base *= base_rescale_factor ** (dim / (dim - 2))
 
         inv_freq = 1. / (base ** (torch.arange(0, dim, 2).float() / dim))
+        self.dim = dim
         self.register_buffer('inv_freq', inv_freq)
 
         assert interpolation_factor >= 1.
@@ -51,12 +52,12 @@ class RotaryEmbedding(Module):
             self.register_buffer('scale', None)
             return
 
-        scale = (torch.arange(0, dim, 2) + 0.4 * dim) / (1.4 * dim)
+        # scale = (torch.arange(0, dim, 2) + 0.4 * dim) / (1.4 * dim)
+        #
+        # self.scale_base = scale_base
+        # self.register_buffer('scale', scale)
 
-        self.scale_base = scale_base
-        self.register_buffer('scale', scale)
-
-    def forward_from_seq_len(self, seq_len):
+    def forward_from_seq_len(self, seq_len: int):
         device = self.inv_freq.device
 
         t = torch.arange(seq_len, device = device)
@@ -77,27 +78,28 @@ class RotaryEmbedding(Module):
         # [d, 2 * d]
         freqs = freqs.view(freq_dim, -1)
 
-        if self.scale is None:
-            return freqs, 1.
+        return freqs, 1.0
+
+        # if self.scale is None:
+        #     self.scale = (torch.arange(0, self.dim, 2) + 0.4 * self.dim) / (1.4 * self.dim)
         
         # [seq_len, ]
-        power = (t - (max_pos // 2)) / self.scale_base
-
-        # [seq_len, d // 2]
-        #scale = self.scale ** rearrange(power, 'n -> n 1')
-        scale = self.scale ** power.unsqueeze(1)
-
-        # [seq_len, d // 2] -> [seq_len, d // 2, 2]
-        scale = torch.stack((scale, scale), dim = -1)
-
-        
-        #scale = rearrange(scale, '... d r -> ... (d r)')
-        seq_len = scale.shape[0]
-
-        # [seq_len, d]
-        scale = scale.view(seq_len, -1)
-
-        return freqs, scale
+        # power = (t - (max_pos // 2)) / self.scale_base
+        #
+        # # [seq_len, d // 2]
+        # #scale = self.scale ** rearrange(power, 'n -> n 1')
+        # scale = self.scale ** power.unsqueeze(1)
+        #
+        # # [seq_len, d // 2] -> [seq_len, d // 2, 2]
+        # scale = torch.stack((scale, scale), dim = -1)
+        #
+        # #scale = rearrange(scale, '... d r -> ... (d r)')
+        # seq_len = scale.shape[0]
+        #
+        # # [seq_len, d]
+        # scale = scale.view(seq_len, -1)
+        #
+        # return freqs, scale
 
 
 # Text embedding
@@ -237,7 +239,7 @@ class DiT(nn.Module):
             residual = x
 
         for block in self.transformer_blocks:
-            x = block(x, t, mask=mask, freqs=freqs, scales=scales)
+            x = block(x, t, freqs, scales, mask=mask,)
 
         if self.long_skip_connection is not None:
             x = self.long_skip_connection(torch.cat((x, residual), dim=-1))
