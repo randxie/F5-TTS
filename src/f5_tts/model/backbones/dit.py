@@ -24,7 +24,6 @@ from f5_tts.model.modules import (
     get_pos_embed_indices,
 )
 from torch.nn import Module
-from einops import rearrange
 
 class RotaryEmbedding(Module):
     def __init__(
@@ -66,25 +65,26 @@ class RotaryEmbedding(Module):
     def forward(self, t):
         max_pos = t.max() + 1
 
-        freqs = torch.einsum('i , j -> i j', t.type_as(self.inv_freq), self.inv_freq) / self.interpolation_factor
+        freqs = torch.einsum('i, j -> i j', t.type_as(self.inv_freq), self.inv_freq) / self.interpolation_factor
         freqs = torch.stack((freqs, freqs), dim = -1)
-        freqs = rearrange(freqs, '... d r -> ... (d r)')
+
+        # freqs = rearrange(freqs, '... d r -> ... (d r)')
+        freq_dim = freqs.shape[0]
+        freqs = freqs.view(freq_dim, -1)
 
         if self.scale is None:
             return freqs, 1.
 
         power = (t - (max_pos // 2)) / self.scale_base
-        scale = self.scale ** rearrange(power, 'n -> n 1')
+        #scale = self.scale ** rearrange(power, 'n -> n 1')
+        scale = self.scale ** power.unsqueeze(1)
         scale = torch.stack((scale, scale), dim = -1)
-        scale = rearrange(scale, '... d r -> ... (d r)')
+
+        #scale = rearrange(scale, '... d r -> ... (d r)')
+        seq_len = scale.shape[0]
+        scale = scale.view(seq_len, -1)
 
         return freqs, scale
-
-def rotate_half(x):
-    x = rearrange(x, '... (d r) -> ... d r', r = 2)
-    x1, x2 = x.unbind(dim = -1)
-    x = torch.stack((-x2, x1), dim = -1)
-    return rearrange(x, '... d r -> ... (d r)')
 
 
 # Text embedding
