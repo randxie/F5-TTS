@@ -23,6 +23,14 @@ from torch import nn
 mel_basis_cache = {}
 hann_window_cache = {}
 
+def rotate_half(x: torch.Tensor):
+    # x = rearrange(x, '... (d r) -> ... d r', r = 2)
+    x = x.view(*x.shape[:-1], x.shape[-1] // 2, 2)
+    x1, x2 = x.unbind(dim = -1)
+    x = torch.stack((-x2, x1), dim = -1)
+    #return rearrange(x, '... d r -> ... (d r)')
+    return x.view(*x.shape[:-2], -1)
+
 def apply_rotary_pos_emb(t: torch.Tensor, freqs: torch.Tensor, scale: torch.Tensor):
     rot_dim, seq_len, orig_dtype = freqs.shape[-1], t.shape[-2], t.dtype
 
