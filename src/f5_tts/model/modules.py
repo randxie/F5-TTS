@@ -17,14 +17,28 @@ import torch.nn.functional as F
 import torchaudio
 from librosa.filters import mel as librosa_mel_fn
 from torch import nn
-from x_transformers.x_transformers import apply_rotary_pos_emb
-
 
 # raw wav to mel spec
 
-
 mel_basis_cache = {}
 hann_window_cache = {}
+
+def apply_rotary_pos_emb(t: torch.Tensor, freqs: torch.Tensor, scale: torch.Tensor):
+    rot_dim, seq_len, orig_dtype = freqs.shape[-1], t.shape[-2], t.dtype
+
+    freqs = freqs[-seq_len:, :]
+    scale = scale[-seq_len:, :] if len(scale.shape) > 0 else scale
+
+    if t.ndim == 4 and freqs.ndim == 3:
+        # freqs = rearrange(freqs, 'b n d -> b 1 n d')
+        freqs = freqs.unsqueeze(1)
+
+    # partial rotary embeddings, Wang et al. GPT-J
+    t, t_unrotated = t[..., :rot_dim], t[..., rot_dim:]
+    t = (t * freqs.cos() * scale) + (rotate_half(t) * freqs.sin() * scale)
+    out = torch.cat((t, t_unrotated), dim = -1)
+
+    return out.type(orig_dtype)
 
 
 def get_bigvgan_mel_spectrogram(
@@ -375,11 +389,16 @@ class Attention(nn.Module):
         if self.context_pre_only is not None and not self.context_pre_only:
             self.to_out_c = nn.Linear(self.inner_dim, dim)
 
-    def forward(
-        self,
+    """
         x: float["b n d"],  # noised input x  # noqa: F722
         c: float["b n d"] = None,  # context c  # noqa: F722
         mask: bool["b n"] | None = None,  # noqa: F722
+    """
+    def forward(
+        self,
+        x: torch.Tensor,  # noised input x  # noqa: F722
+        c: torch.Tensor = None,  # context c  # noqa: F722
+        mask: torch.Tensor | None = None,  # noqa: F722
         rope=None,  # rotary position embedding for x
         c_rope=None,  # rotary position embedding for c
     ) -> torch.Tensor:
@@ -396,11 +415,14 @@ class AttnProcessor:
     def __init__(self):
         pass
 
+    # Args
+        # x: float["b n d"],  # noised input x  # noqa: F722
+        # mask: bool["b n"] | None = None,  # noqa: F722
     def __call__(
         self,
         attn: Attention,
-        x: float["b n d"],  # noised input x  # noqa: F722
-        mask: bool["b n"] | None = None,  # noqa: F722
+        x: torch.Tensor,  # noised input x  # noqa: F722
+        mask: torch.Tensor | None = None,  # noqa: F722
         rope=None,  # rotary position embedding
     ) -> torch.FloatTensor:
         batch_size = x.shape[0]
