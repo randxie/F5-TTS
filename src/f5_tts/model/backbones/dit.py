@@ -159,8 +159,9 @@ class InputEmbedding(nn.Module):
     def forward(self, x: torch.Tensor, cond: torch.Tensor, text_embed: torch.Tensor, drop_audio_cond: bool=False):  # noqa: F722
         if drop_audio_cond:  # cfg for cond audio
             cond = torch.zeros_like(cond)
-
-        x = self.proj(torch.cat((x, cond, text_embed), dim=-1))
+        
+        # need to convert to the same type as weight
+        x = self.proj(torch.cat((x, cond, text_embed), dim=-1).to(self.proj.weight.dtype))
         x = self.conv_pos_embed(x) + x
         return x
 
@@ -229,8 +230,8 @@ class DiT(nn.Module):
             time = time.repeat(batch)
 
         # t: conditioning time, c: context (text + masked cond audio), x: noised input audio
-        t = self.time_embed(time)
-        text_embed = self.text_embed(text, seq_len, drop_text=drop_text)
+        t = self.time_embed(time).to(x.dtype)
+        text_embed = self.text_embed(text, seq_len, drop_text=drop_text).to(x.dtype)
         x = self.input_embed(x, cond, text_embed, drop_audio_cond=drop_audio_cond)
 
         freqs, scales = self.rotary_embed.forward_from_seq_len(seq_len)
