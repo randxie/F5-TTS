@@ -17,6 +17,7 @@ import torch.nn.functional as F
 import torchaudio
 from librosa.filters import mel as librosa_mel_fn
 from torch import nn
+from typing import Tuple
 
 # raw wav to mel spec
 
@@ -25,11 +26,13 @@ hann_window_cache = {}
 
 def rotate_half(x: torch.Tensor):
     # x = rearrange(x, '... (d r) -> ... d r', r = 2)
-    x = x.view(*x.shape[:-1], x.shape[-1] // 2, 2)
+    seq_len = x.shape[0]
+    dim = x.shape[1]
+    x = x.view(seq_len, dim // 2, 2)
     x1, x2 = x.unbind(dim = -1)
     x = torch.stack((-x2, x1), dim = -1)
     #return rearrange(x, '... d r -> ... (d r)')
-    return x.view(*x.shape[:-2], -1)
+    return x.view(seq_len, -1)
 
 def apply_rotary_pos_emb(t: torch.Tensor, freqs: torch.Tensor, scale: torch.Tensor):
     rot_dim, seq_len, orig_dtype = freqs.shape[-1], t.shape[-2], t.dtype
@@ -404,7 +407,7 @@ class Attention(nn.Module):
         x: torch.Tensor,  # noised input x  # noqa: F722
         c: torch.Tensor = None,  # context c  # noqa: F722
         mask: torch.Tensor | None = None,  # noqa: F722
-        rope=None,  # rotary position embedding for x
+        rope= Tuple[torch.Tensor, torch.Tensor] | None,  # rotary position embedding for x
         c_rope=None,  # rotary position embedding for c
     ) -> torch.Tensor:
         batch_size = x.shape[0]
@@ -416,7 +419,7 @@ class Attention(nn.Module):
 
         # apply rotary position embedding
         if rope is not None:
-            freqs, xpos_scale = rope
+            freqs, xpos_scale = rope[0], rope[1]
             q_xpos_scale, k_xpos_scale = (xpos_scale, xpos_scale**-1.0) if xpos_scale is not None else (1.0, 1.0)
 
             query = apply_rotary_pos_emb(query, freqs, q_xpos_scale)
