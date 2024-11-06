@@ -231,13 +231,13 @@ class DiT(nn.Module):
         text_embed = self.text_embed(text, seq_len, drop_text=drop_text)
         x = self.input_embed(x, cond, text_embed, drop_audio_cond=drop_audio_cond)
 
-        rope = self.rotary_embed.forward_from_seq_len(seq_len)
+        freqs, scales = self.rotary_embed.forward_from_seq_len(seq_len)
 
         if self.long_skip_connection is not None:
             residual = x
 
         for block in self.transformer_blocks:
-            x = block(x, t, mask=mask, rope=rope)
+            x = block(x, t, mask=mask, freqs=freqs, scales=scales)
 
         if self.long_skip_connection is not None:
             x = self.long_skip_connection(torch.cat((x, residual), dim=-1))
