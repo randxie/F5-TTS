@@ -26,19 +26,21 @@ hann_window_cache = {}
 
 def rotate_half(x: torch.Tensor):
     # x = rearrange(x, '... (d r) -> ... d r', r = 2)
-    seq_len = x.shape[0]
-    dim = x.shape[1]
-    x = x.view(seq_len, dim // 2, 2)
+    batch_size = x.shape[0]
+    seq_len = x.shape[1]
+    dim = x.shape[2]
+    x = x.view(batch_size, seq_len, dim // 2, 2)
     x1, x2 = x.unbind(dim = -1)
     x = torch.stack((-x2, x1), dim = -1)
     #return rearrange(x, '... d r -> ... (d r)')
-    return x.view(seq_len, -1)
+    return x.view(batch_size, seq_len, -1)
 
-def apply_rotary_pos_emb(t: torch.Tensor, freqs: torch.Tensor, scale: torch.Tensor):
+def apply_rotary_pos_emb(t: torch.Tensor, freqs: torch.Tensor, scale: float):
     rot_dim, seq_len, orig_dtype = freqs.shape[-1], t.shape[-2], t.dtype
 
     freqs = freqs[-seq_len:, :]
-    scale = scale[-seq_len:, :] if len(scale.shape) > 0 else scale
+    # scale = scale[-seq_len:, :] if len(scale.shape) > 1 else scale
+    # scale = scale.to(freqs.device)
 
     if t.ndim == 4 and freqs.ndim == 3:
         # freqs = rearrange(freqs, 'b n d -> b 1 n d')
@@ -405,9 +407,9 @@ class Attention(nn.Module):
     def forward(
         self,
         x: torch.Tensor,  # noised input x  # noqa: F722
+        freqs: torch.Tensor,  # rotary position embedding for x
+        scales: float,  # rotary position embedding for x
         mask: torch.Tensor | None = None,  # noqa: F722
-        freqs: torch.Tensor | None = None,  # rotary position embedding for x
-        scales: torch.Tensor | None = None,  # rotary position embedding for x
     ) -> torch.Tensor:
         batch_size = x.shape[0]
 
@@ -418,7 +420,8 @@ class Attention(nn.Module):
 
         # apply rotary position embedding
         freqs, xpos_scale = freqs, scales
-        q_xpos_scale, k_xpos_scale = (xpos_scale, xpos_scale**-1.0) if xpos_scale is not None else (1.0, 1.0)
+        q_xpos_scale = xpos_scale
+        k_xpos_scale = xpos_scale**-1.0
 
         query = apply_rotary_pos_emb(query, freqs, q_xpos_scale)
         key = apply_rotary_pos_emb(key, freqs, k_xpos_scale)
@@ -560,12 +563,12 @@ class DiTBlock(nn.Module):
         self.ff_norm = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.ff = FeedForward(dim=dim, mult=ff_mult, dropout=dropout, approximate="tanh")
 
-    def forward(self, x, t, mask=None, freqs: torch.Tensor | None=None, scales: torch.Tensor | None = None):  # x: noised input, t: time embedding
+    def forward(self, x: torch.Tensor, t: torch.Tensor, freqs: torch.Tensor, scales: float, mask: torch.Tensor | None=None, ):  # x: noised input, t: time embedding
         # pre-norm & modulation for attention input
         norm, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.attn_norm(x, emb=t)
 
         # attention
-        attn_output = self.attn(x=norm, mask=mask, freqs=freqs, scales=scales)
+        attn_output = self.attn(x=norm, freqs=freqs, scales=scales, mask=mask)
 
         # process attention output for input x
         x = x + gate_msa.unsqueeze(1) * attn_output
