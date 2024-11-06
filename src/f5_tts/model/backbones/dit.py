@@ -13,7 +13,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from x_transformers.x_transformers import RotaryEmbedding
 
 from f5_tts.model.modules import (
     TimestepEmbedding,
@@ -24,6 +23,68 @@ from f5_tts.model.modules import (
     precompute_freqs_cis,
     get_pos_embed_indices,
 )
+from torch.nn import Module
+from einops import rearrange
+
+class RotaryEmbedding(Module):
+    def __init__(
+        self,
+        dim,
+        use_xpos = False,
+        scale_base = 512,
+        interpolation_factor = 1.,
+        base = 10000,
+        base_rescale_factor = 1.
+    ):
+        super().__init__()
+        # proposed by reddit user bloc97, to rescale rotary embeddings to longer sequence length without fine-tuning
+        # has some connection to NTK literature
+        # https://www.reddit.com/r/LocalLLaMA/comments/14lz7j5/ntkaware_scaled_rope_allows_llama_models_to_have/
+        base *= base_rescale_factor ** (dim / (dim - 2))
+
+        inv_freq = 1. / (base ** (torch.arange(0, dim, 2).float() / dim))
+        self.register_buffer('inv_freq', inv_freq)
+
+        assert interpolation_factor >= 1.
+        self.interpolation_factor = interpolation_factor
+
+        if not use_xpos:
+            self.register_buffer('scale', None)
+            return
+
+        scale = (torch.arange(0, dim, 2) + 0.4 * dim) / (1.4 * dim)
+
+        self.scale_base = scale_base
+        self.register_buffer('scale', scale)
+
+    def forward_from_seq_len(self, seq_len):
+        device = self.inv_freq.device
+
+        t = torch.arange(seq_len, device = device)
+        return self.forward(t)
+
+    def forward(self, t):
+        max_pos = t.max() + 1
+
+        freqs = torch.einsum('i , j -> i j', t.type_as(self.inv_freq), self.inv_freq) / self.interpolation_factor
+        freqs = torch.stack((freqs, freqs), dim = -1)
+        freqs = rearrange(freqs, '... d r -> ... (d r)')
+
+        if self.scale is None:
+            return freqs, 1.
+
+        power = (t - (max_pos // 2)) / self.scale_base
+        scale = self.scale ** rearrange(power, 'n -> n 1')
+        scale = torch.stack((scale, scale), dim = -1)
+        scale = rearrange(scale, '... d r -> ... (d r)')
+
+        return freqs, scale
+
+def rotate_half(x):
+    x = rearrange(x, '... (d r) -> ... d r', r = 2)
+    x1, x2 = x.unbind(dim = -1)
+    x = torch.stack((-x2, x1), dim = -1)
+    return rearrange(x, '... d r -> ... (d r)')
 
 
 # Text embedding
@@ -43,12 +104,13 @@ class TextEmbedding(nn.Module):
             )
         else:
             self.extra_modeling = False
-
-    def forward(self, text: int["b nt"], seq_len, drop_text=False):  # noqa: F722
+    
+    # text: int["b nt"]
+    def forward(self, text: torch.Tensor, seq_len: int, drop_text: bool=False):  # noqa: F722
         text = text + 1  # use 0 as filler token. preprocess of batch pad -1, see list_str_to_idx()
         text = text[:, :seq_len]  # curtail if character tokens are more than the mel spec tokens
         batch, text_len = text.shape[0], text.shape[1]
-        text = F.pad(text, (0, seq_len - text_len), value=0)
+        text = F.pad(text, (0, seq_len - text_len), value=0.0)
 
         if drop_text:  # cfg for text
             text = torch.zeros_like(text)
@@ -77,8 +139,9 @@ class InputEmbedding(nn.Module):
         super().__init__()
         self.proj = nn.Linear(mel_dim * 2 + text_dim, out_dim)
         self.conv_pos_embed = ConvPositionEmbedding(dim=out_dim)
-
-    def forward(self, x: float["b n d"], cond: float["b n d"], text_embed: float["b n d"], drop_audio_cond=False):  # noqa: F722
+    
+    # x: float["b n d"], cond: float["b n d"], text_embed: float["b n d"], drop_audio_cond=False
+    def forward(self, x: torch.Tensor, cond: torch.Tensor, text_embed: torch.Tensor, drop_audio_cond: bool=False):  # noqa: F722
         if drop_audio_cond:  # cfg for cond audio
             cond = torch.zeros_like(cond)
 
@@ -127,8 +190,7 @@ class DiT(nn.Module):
         self.norm_out = AdaLayerNormZero_Final(dim)  # final modulation
         self.proj_out = nn.Linear(dim, mel_dim)
 
-    def forward(
-        self,
+    """
         x: float["b n d"],  # nosied input audio  # noqa: F722
         cond: float["b n d"],  # masked cond audio  # noqa: F722
         text: int["b nt"],  # text  # noqa: F722
@@ -136,6 +198,16 @@ class DiT(nn.Module):
         drop_audio_cond: bool = False,  # cfg for cond audio
         drop_text: bool = False,  # cfg for text
         mask: bool["b n"] | None = None,  # noqa: F722
+    """
+    def forward(
+        self,
+        x: torch.Tensor,  # nosied input audio  # noqa: F722
+        cond: torch.Tensor,  # masked cond audio  # noqa: F722
+        text: torch.Tensor,  # text  # noqa: F722
+        time: torch.Tensor,  # time step  # noqa: F821 F722
+        drop_audio_cond: bool = False,  # cfg for cond audio
+        drop_text: bool = False,  # cfg for text
+        mask: torch.Tensor | None = None,  # noqa: F722
     ):
         batch, seq_len = x.shape[0], x.shape[1]
         if time.ndim == 0:
