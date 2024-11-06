@@ -22,7 +22,6 @@ from f5_tts.model.modules import (
     ConvNeXtV2Block,
     ConvPositionEmbedding,
     Attention,
-    AttnProcessor,
     FeedForward,
     precompute_freqs_cis,
     get_pos_embed_indices,
