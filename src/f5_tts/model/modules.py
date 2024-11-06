@@ -183,7 +183,7 @@ class SinusPositionEmbedding(nn.Module):
         half_dim = self.dim // 2
         emb = math.log(10000) / (half_dim - 1)
         emb = torch.exp(torch.arange(half_dim, device=device).float() * -emb)
-        emb = scale * x.unsqueeze(1) * emb.unsqueeze(0)
+        emb = scale * x.float().unsqueeze(1) * emb.unsqueeze(0)
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
         return emb
 
@@ -310,7 +310,7 @@ class AdaLayerNormZero(nn.Module):
         self.norm = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
 
     def forward(self, x, emb=None):
-        emb = self.linear(self.silu(emb))
+        emb = self.linear(self.silu(emb.to(torch.float16)))
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = torch.chunk(emb, 6, dim=1)
 
         x = self.norm(x) * (1 + scale_msa[:, None]) + shift_msa[:, None]
@@ -331,7 +331,7 @@ class AdaLayerNormZero_Final(nn.Module):
         self.norm = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
 
     def forward(self, x, emb):
-        emb = self.linear(self.silu(emb))
+        emb = self.linear(self.silu(emb.to(torch.float16)))
         scale, shift = torch.chunk(emb, 2, dim=1)
 
         x = self.norm(x) * (1 + scale).unsqueeze(1) + shift.unsqueeze(1)
@@ -663,5 +663,5 @@ class TimestepEmbedding(nn.Module):
     def forward(self, timestep: torch.Tensor):  # noqa: F821
         time_hidden = self.time_embed(timestep)
         time_hidden = time_hidden.to(timestep.dtype)
-        time = self.time_mlp(time_hidden)  # b d
-        return time
+        time = self.time_mlp(time_hidden.to(torch.float16))  # b d
+        return time.to(timestep.dtype)
