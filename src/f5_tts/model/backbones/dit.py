@@ -59,7 +59,7 @@ class TextEmbedding(nn.Module):
         if self.extra_modeling:
             # sinus pos emb
             batch_start = torch.zeros((batch,), dtype=torch.long)
-            pos_idx = get_pos_embed_indices(batch_start, seq_len, max_pos=self.precompute_max_pos)
+            pos_idx = get_pos_embed_indices(batch_start, seq_len, max_pos=self.precompute_max_pos).long()
             text_pos_embed = self.freqs_cis[pos_idx]
             text = text + text_pos_embed
 
@@ -133,8 +133,8 @@ class DiT(nn.Module):
         cond: float["b n d"],  # masked cond audio  # noqa: F722
         text: int["b nt"],  # text  # noqa: F722
         time: float["b"] | float[""],  # time step  # noqa: F821 F722
-        drop_audio_cond,  # cfg for cond audio
-        drop_text,  # cfg for text
+        drop_audio_cond: bool = False,  # cfg for cond audio
+        drop_text: bool = False,  # cfg for text
         mask: bool["b n"] | None = None,  # noqa: F722
     ):
         batch, seq_len = x.shape[0], x.shape[1]

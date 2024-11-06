@@ -180,7 +180,7 @@ class ConvPositionEmbedding(nn.Module):
             mask = mask[..., None]
             x = x.masked_fill(~mask, 0.0)
 
-        x = x.permute(0, 2, 1)
+        x = x.permute(0, 2, 1).type_as(self.conv1d[0].weight)
         x = self.conv1d(x)
         out = x.permute(0, 2, 1)
 
@@ -307,7 +307,7 @@ class AdaLayerNormZero_Final(nn.Module):
         emb = self.linear(self.silu(emb))
         scale, shift = torch.chunk(emb, 2, dim=1)
 
-        x = self.norm(x) * (1 + scale)[:, None, :] + shift[:, None, :]
+        x = self.norm(x) * (1 + scale).unsqueeze(1) + shift.unsqueeze(1)
         return x
 
 
