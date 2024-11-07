@@ -36,11 +36,13 @@ def euler_midpoint(fn, y0, t):
         h = t[i + 1] - t[i]
         
         # Compute the midpoint
-        torch.compiler.cudagraph_mark_step_begin() 
-        t_mid = t[i] + h / 2
-        y_mid = y + (h / 2) * fn(t[i], y)
+        torch.compiler.cudagraph_mark_step_begin()
+        t_i = t[i].unsqueeze(0)
+        t_mid = t_i + h / 2
+        y_mid = y + (h / 2) * fn(t_i, y)
         
         # Update y for the next time step
+        # print("t_mid: ", t_mid.shape)
         y = y + h * fn(t_mid, y_mid)
         
     
@@ -92,10 +94,6 @@ class CFM(nn.Module):
         # vocab map for tokenization
         self.vocab_char_map = vocab_char_map
 
-    @property
-    def device(self):
-        return next(self.parameters()).device
-
     @torch.no_grad()
     def sample(
         self,
@@ -114,6 +112,7 @@ class CFM(nn.Module):
         duplicate_test=False,
         t_inter=0.1,
         edit_mask=None,
+        device=None,
     ):
         #self.eval()
         # raw wave
@@ -123,8 +122,8 @@ class CFM(nn.Module):
             cond = cond.permute(0, 2, 1)
             assert cond.shape[-1] == self.num_channels
 
-        cond = cond.to(next(self.parameters()).dtype)
-
+        #cond = cond.to(next(self.parameters()).dtype)
+        cond = cond.to(torch.float16)
         batch, cond_seq_len, device = *cond.shape[:2], cond.device
         if not exists(lens):
             lens = torch.full((batch,), cond_seq_len, device=device, dtype=torch.long)
@@ -183,13 +182,16 @@ class CFM(nn.Module):
 
             # predict flow
             pred = self.transformer(
-                x=x, cond=step_cond, text=text, time=t, mask=mask, drop_audio_cond=False, drop_text=False
+                x.to(torch.float16), step_cond.to(torch.float16), text, t.to(torch.float32), #mask=mask, drop_audio_cond=False, drop_text=False
             )
             if cfg_strength < 1e-5:
                 return pred
 
+            # null_pred = self.transformer(
+            #     x=x, cond=step_cond, text=text, time=t, #mask=mask, drop_audio_cond=True, drop_text=True
+            # )
             null_pred = self.transformer(
-                x=x, cond=step_cond, text=text, time=t, mask=mask, drop_audio_cond=True, drop_text=True
+                x.to(torch.float16), step_cond.to(torch.float16), text, t.to(torch.float32), #mask=mask, drop_audio_cond=True, drop_text=True
             )
             return pred + (pred - null_pred) * cfg_strength
 
@@ -200,7 +202,7 @@ class CFM(nn.Module):
         for dur in duration:
             if exists(seed):
                 torch.manual_seed(seed)
-            y0.append(torch.randn(dur, self.num_channels, device=self.device, dtype=step_cond.dtype))
+            y0.append(torch.randn(dur, self.num_channels, device=device, dtype=step_cond.dtype))
         y0 = pad_sequence(y0, padding_value=0, batch_first=True)
 
         t_start = 0
@@ -211,12 +213,14 @@ class CFM(nn.Module):
             y0 = (1 - t_start) * y0 + t_start * test_cond
             steps = int(steps * (1 - t_start))
 
-        t = torch.linspace(t_start, 1, steps, device=self.device, dtype=step_cond.dtype)
+        t = torch.linspace(t_start, 1, steps, device=device, dtype=step_cond.dtype)
         if sway_sampling_coef is not None:
             t = t + sway_sampling_coef * (torch.cos(torch.pi / 2 * t) - 1 + t)
 
         # [rand] just implement the euler midpoint with torch
         # trajectory = odeint(fn, y0, t, **self.odeint_kwargs)
+        # rand converted to float16
+        y0 = y0.to(torch.float16)
         trajectory = euler_midpoint(fn, y0, t)
         sampled = trajectory
 
