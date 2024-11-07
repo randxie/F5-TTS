@@ -182,7 +182,7 @@ class CFM(nn.Module):
 
             # predict flow
             pred = self.transformer(
-                x.to(torch.float16), step_cond.to(torch.float16), text, t.to(torch.float32), #mask=mask, drop_audio_cond=False, drop_text=False
+                x.to(torch.float16), step_cond.to(torch.float16), text, t.to(torch.float32), torch.IntTensor([0]).to(x.device), #mask=mask, drop_audio_cond=False, drop_text=False
             )
             if cfg_strength < 1e-5:
                 return pred
@@ -191,7 +191,7 @@ class CFM(nn.Module):
             #     x=x, cond=step_cond, text=text, time=t, #mask=mask, drop_audio_cond=True, drop_text=True
             # )
             null_pred = self.transformer(
-                x.to(torch.float16), step_cond.to(torch.float16), text, t.to(torch.float32), #mask=mask, drop_audio_cond=True, drop_text=True
+                x.to(torch.float16), step_cond.to(torch.float16), text, t.to(torch.float32), torch.IntTensor([1]).to(x.device) #mask=mask, drop_audio_cond=True, drop_text=True
             )
             return pred + (pred - null_pred) * cfg_strength
 

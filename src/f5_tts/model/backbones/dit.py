@@ -104,7 +104,6 @@ class RotaryEmbedding(Module):
 
 # Text embedding
 
-
 class TextEmbedding(nn.Module):
     def __init__(self, text_num_embeds, text_dim, conv_layers=0, conv_mult=2):
         super().__init__()
@@ -119,16 +118,24 @@ class TextEmbedding(nn.Module):
             )
         else:
             self.extra_modeling = False
-    
+
+
     # text: int["b nt"]
-    def forward(self, text: torch.Tensor, seq_len: int, drop_text: bool=False):  # noqa: F722
+    def forward(self, text: torch.Tensor, seq_len: int, drop_text: torch.Tensor):  # noqa: F722
         text = text + 1  # use 0 as filler token. preprocess of batch pad -1, see list_str_to_idx()
         text = text[:, :seq_len]  # curtail if character tokens are more than the mel spec tokens
         batch, text_len = text.shape[0], text.shape[1]
         text = F.pad(text, [0, seq_len - text_len], value=0.0)
 
-        if drop_text:  # cfg for text
-            text = torch.zeros_like(text)
+        # def true_fn(x: torch.Tensor):
+        #     return torch.zeros_like(x)
+        # 
+        # def false_fn(x: torch.Tensor):
+        #     return x.clone()
+        #
+        # text = torch.cond(drop_text, true_fn, false_fn, (text, ))
+        text = text * ((1 - drop_text).to(text.dtype))
+
 
         text = self.text_embed(text)  # b n -> b n d
 
@@ -148,7 +155,6 @@ class TextEmbedding(nn.Module):
 
 # noised input audio and context mixing embedding
 
-
 class InputEmbedding(nn.Module):
     def __init__(self, mel_dim, text_dim, out_dim):
         super().__init__()
@@ -156,9 +162,10 @@ class InputEmbedding(nn.Module):
         self.conv_pos_embed = ConvPositionEmbedding(dim=out_dim)
     
     # x: float["b n d"], cond: float["b n d"], text_embed: float["b n d"], drop_audio_cond=False
-    def forward(self, x: torch.Tensor, cond: torch.Tensor, text_embed: torch.Tensor, drop_audio_cond: bool=False):  # noqa: F722
-        if drop_audio_cond:  # cfg for cond audio
-            cond = torch.zeros_like(cond)
+    def forward(self, x: torch.Tensor, cond: torch.Tensor, text_embed: torch.Tensor, drop_audio_cond: torch.Tensor):  # noqa: F722
+        # if drop_audio_cond:  # cfg for cond audio
+        #     cond = torch.zeros_like(cond)
+        cond = cond * ((1 - drop_audio_cond).to(cond.dtype))
         
         # need to convert to the same type as weight
         x = self.proj(torch.cat((x, cond, text_embed), dim=-1).to(self.proj.weight.dtype))
@@ -221,8 +228,9 @@ class DiT(nn.Module):
         cond: torch.Tensor,  # masked cond audio  # noqa: F722
         text: torch.Tensor,  # text  # noqa: F722
         time: torch.Tensor,  # time step  # noqa: F821 F722
-        drop_audio_cond: bool = False,  # cfg for cond audio
-        drop_text: bool = False,  # cfg for text
+        drop: torch.Tensor,
+        # drop_audio_cond: bool = False,  # cfg for cond audio
+        # drop_text: bool = False,  # cfg for text
         mask: torch.Tensor | None = None,  # noqa: F722
     ):
         batch, seq_len = x.shape[0], x.shape[1]
@@ -231,8 +239,8 @@ class DiT(nn.Module):
 
         # t: conditioning time, c: context (text + masked cond audio), x: noised input audio
         t = self.time_embed(time).to(x.dtype)
-        text_embed = self.text_embed(text, seq_len, drop_text=drop_text).to(x.dtype)
-        x = self.input_embed(x, cond, text_embed, drop_audio_cond=drop_audio_cond)
+        text_embed = self.text_embed(text, seq_len, drop_text=drop).to(x.dtype)
+        x = self.input_embed(x, cond, text_embed, drop_audio_cond=drop)
 
         freqs, scales = self.rotary_embed.forward_from_seq_len(seq_len)
 
